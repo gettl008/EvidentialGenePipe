@@ -1,4 +1,4 @@
-# evidentialgene_pipe
+# EvidentialGenePipe
 
 A config-driven pipeline that turns PacBio **FLNC IsoSeq reads** + a **reference genome**
 + a **reference annotation** into a **non-redundant coding transcriptome** with
