@@ -1,0 +1,122 @@
+# ---------------------------------------------------------------------------
+# EvidentialGene FLNC transcriptome pipeline - example config
+# Copy per sample, e.g. config/Em2.yaml, and edit. Nothing is hardcoded in the
+# scripts; every path and parameter lives here.
+# ---------------------------------------------------------------------------
+
+sample: Em2
+
+inputs:
+  # Either flnc_bam (unaligned PacBio FLNC BAM) or flnc_fasta / flnc_fastq.
+  # Multiple files are allowed and are concatenated.
+  flnc_bam:
+    - /home/USER/read_data/isoseq_20260630/Em2/Em2_pacbio.bam
+  # flnc_fasta: []
+  genome: /home/USER/assemblies/porifera/odEphMuel1/odEphMuel1.fa
+  annotation: /home/USER/assemblies/porifera/odEphMuel1/odEphMuel1.gff3
+  annotation_format: auto        # auto | gff3 | gtf
+
+outdir: /home/USER/analysis/egpipe/Em2
+
+resources:
+  # Under SLURM these are capped by the allocation (SLURM_CPUS_PER_TASK and
+  # SLURM_MEM_PER_NODE / _PER_CPU), so the sbatch is the single source of truth.
+  threads: 32
+  max_mem_mb: 76000              # RDAC defq ceiling is ~83G; stay under it
+  tmpdir: null                   # null -> <outdir>/tmp
+
+evigene:
+  home: /home/USER/evidentialgene_pipe/software/evigene
+  script: scripts/prot/tr2aacds4.pl   # tr2aacds.pl also works
+  min_aa: 40                     # -MINAA; raise to ~60-90 to suppress tiny ORFs
+  p_heterozygosity: 0            # -pHeterozygosity 0..9; try 2-3 for pooled outbred samples
+  stranded_rna: "yes"            # -strandedrna auto|yes|no. FLNC is strand-resolved -> yes
+  aconsensus: true               # -aconsensus (replication across input tracks as evidence)
+  # evigene drops ORFs under ~100 aa that have no homology and no replication
+  # ("smallaa"). Pre-clustering removes the replication signal, so small genuine
+  # genes are more likely to be dropped than with raw reads. Lower the threshold
+  # or keep small ORFs outright if that matters for your gene families.
+  # tr2aacds ends in an all-vs-all self-blastn, so cost grows ~N^2. evigene documents
+  # running it on subsets and re-running on the okay outputs to combine, and states its
+  # classifier is deterministic with respect to how inputs are grouped. Set chunks > 1
+  # to do that: round 1 runs per chunk, round 2 combines. Cost becomes ~N^2/K.
+  # Rule of thumb: aim for <= ~150k sequences per chunk.
+  chunks: 0                      # 0 or 1 = single pass; an integer; or "auto"
+  chunk_target: 150000           # sequences per chunk; also the size the merge
+                                 # cascade reduces to before the final combine
+  # Each extra merge level costs sensitivity: a chunk drops transcripts before any
+  # later level sees them, and the losses are not random (see README). Keep this at 1
+  # unless the combine step is genuinely unaffordable.
+  max_merge_levels: 1
+  # "nonredundant" carries chunk-dropped transcripts forward unless they were dropped
+  # as perfectdup/perfectfrag, so classification calls (parthi, altmap, smallaa) are
+  # decided by the final combine instead of by one chunk. "okay" keeps only okaysets,
+  # which reduces faster but loses more.
+  chunk_carry_forward: nonredundant
+  small_aa_max: null             # -SMALLAAMAX (evigene default 100 aa)
+  keep_small_orfs: false         # -smallclass: keep small ORFs instead of dropping them
+  no_utr_orf: false              # true adds -noutrorf
+  extra_args: []                 # any further tr2aacds flags, verbatim
+
+tracks:
+  flnc_prefix: "flnc"            # IDs are renamed <prefix>_<n> (PacBio IDs break perl scripts)
+
+  # Reduce the read set before tr2aacds. Strongly recommended: tr2aacds ends in an
+  # all-vs-all self-blastn, so feeding it ~200k raw FLNC reads is the wall-clock and
+  # memory driver. cluster2 collapses them to transcript consensuses and tags each
+  # with its FL read count (is:i), which the pipeline carries through as read support.
+  cluster:
+    enabled: true                # run `isoseq cluster2` on the FLNC BAM first
+    singletons: true             # --singletons: keep reads that formed no cluster
+    threads: null                # null -> resources.threads (itself capped by
+                                 # SLURM_CPUS_PER_TASK when running under SLURM)
+    sort_threads: null           # null -> same as threads. cluster2 has no memory cap
+                                 # option; this is the lever to pull on OOM (try 2-4)
+    extra_args: []
+  keep_raw_flnc_track: false     # also add the raw reads as a second evidence track
+                                 # (undoes most of the size reduction; off by default)
+
+  dedup_identical: true          # only used when cluster.enabled is false
+  # Adding reference CDS as a tr2aacds evidence track is available but OFF by default.
+  # After cluster2 the FLNC consensus CDS is frequently byte-identical to the
+  # annotated CDS; evigene's perfect-duplicate step then keeps the CDS-only reference
+  # sequence (100% coding beats 70% coding) and discards the full-length transcript,
+  # so reference genes lose their UTRs. Reference genes the reads miss are instead
+  # appended after classification (transcriptome.add_unrecovered_reference).
+  include_reference_cds: false
+  ref_cds_prefix: "refcds"       # reference CDS are renamed <prefix>_<n>
+  drop_reference_cds_when_supported: true   # only relevant when the track is enabled
+
+transcriptome:
+  include_alternates: true       # keep evigene okalt (alternate isoforms) as well as okay/main
+  min_cds_len: 0                 # extra post-filter on CDS length in nt (0 = off)
+  include_cull: false            # evigene may write a <name>.cull.* set beside
+                                 # <name>.okay.*; it groups culls with drops, so they
+                                 # are excluded unless you turn this on
+  add_unrecovered_reference: true  # append reference genes with no FLNC-supported
+                                 # transcript, as CDS-only entries flagged
+                                 # ref_evidence=reference_only_no_flnc
+
+mapping:
+  preset: "splice:hq"            # minimap2 -x
+  # minimap2 -u : f (transcript strand) | b (both strands) | n (ignore GT-AG).
+  # minimap2's own default is n, which finds noticeably worse intron boundaries; the
+  # documented Iso-Seq setting is -uf and it is valid here because stage 03 stores
+  # every transcript ORF-sense. Use b only if you suspect mixed-orientation input.
+  strand_mode: "f"
+  extra_args: []
+  secondary: false
+
+classify:
+  min_query_cov: 0.50            # aligned query fraction required to call a transcript "mapped"
+  min_identity: 0.85             # gap-compressed identity required to call a transcript "mapped"
+  min_cds_overlap_bp: 30         # sense CDS-exon overlap needed to call a transcript "reference"
+  min_cds_overlap_frac: 0.0      # optional: fraction of the transcript's aligned CDS blocks
+  propagate_ref_by_locus: true   # a locus containing a reference-CDS member is called reference
+  quantify_flnc: true            # map FLNC reads back to the transcriptome for read support
+  emit_genome_gff: true          # also write a genome-coordinate GFF of the final transcripts
+
+output:
+  gff_source: "evigene_pipe"
+  emit_utr: true
+  id_prefix: null                # null -> use evigene public IDs (e.g. Em2EVm000123t1)

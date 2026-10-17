@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=@JOBNAME@
+#SBATCH --partition=@PARTITION@
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=@CPUS@
+#SBATCH --mem=@MEM@
+#SBATCH --time=@TIME@
+#SBATCH --output=@LOGDIR@/%x.%j.out
+#SBATCH --error=@LOGDIR@/%x.%j.err
+
+set -euo pipefail
+
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate @CONDA_ENV@
+
+cd @REPO@
+python -m egpipe run --config @CONFIG@ --only @STAGE@

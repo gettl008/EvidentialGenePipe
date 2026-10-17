@@ -1,0 +1,34 @@
+# Conda environment for the EvidentialGene FLNC transcriptome pipeline.
+#
+#   conda env create -f environment.yml
+#   conda activate evigene_pipe
+#   bash install_evigene.sh            # EvidentialGene itself is not on conda
+#
+# Notes:
+#  - fastanrdb (required by tr2aacds) ships inside the bioconda `exonerate` package.
+#  - EvidentialGene's perl scripts only use core perl modules, so the plain
+#    conda `perl` is enough.
+name: evigene_pipe
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  # ---- EvidentialGene tr2aacds hard requirements ----
+  - perl >=5.32
+  - exonerate =2.4.0        # provides fastanrdb
+  - cd-hit >=4.8            # cd-hit, cd-hit-est
+  - blast >=2.14            # blastn, makeblastdb
+  # ---- pipeline tooling ----
+  - python >=3.10,<3.13
+  - isoseq >=4.0            # isoseq cluster2 (linux-64 only; PacBio channel via bioconda)
+  - minimap2 >=2.28
+  - samtools >=1.19
+  - seqkit >=2.6
+  - gffread >=0.12
+  - pysam >=0.22
+  - biopython >=1.83
+  - pandas >=2.0
+  - numpy
+  - pyyaml
+  - wget
+  - curl
