@@ -47,13 +47,6 @@ Locally / on an interactive node:
 python -m egpipe run --config config/Em2.yaml
 ```
 
-On RDAC via SLURM:
-
-```bash
-python -m egpipe sbatch --config config/Em2.yaml --partition defq --conda-env evigene_pipe
-bash <outdir>/slurm/Em2.submit_all.sh          # chained with afterok dependencies
-```
-
 Resume / rerun single stages:
 
 ```bash
