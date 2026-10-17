@@ -177,32 +177,6 @@ Direct genomic evidence wins: a transcript with antisense overlap is never promo
   drops exact exon-structure recovery from 9/13 to 5/13 on the test set, which is what
   the stage-03 reorientation guarantee prevents. PacBio's own ISOSEQ preset hardcodes
   `-uf`, which is independent corroboration of the default.
-* **Why minimap2 directly and not pbmm2.** pbmm2 is PacBio's own minimap2 wrapper, so it
-  is the obvious thing to reach for. Its `ISOSEQ` preset expands to
-  `-k 15 -w 5 -u -o 6 -O 24 -e 1 -E 0 -A 1 -B 4 -z 200 -Z 100 -r 200000 -g 2000 -C 5
-  -G 200000`, which is `minimap2 -x splice:hq` spelled out, and it also applies `-uf`.
-  Verified rather than assumed: on the test transcripts pbmm2 ISOSEQ and
-  `minimap2 -x splice:hq -uf` produce byte-identical alignments (13/13 records agreeing
-  on contig, position, strand and every exon block), and the same holds on deliberately
-  reverse-complemented input, which is the case where `-u` actually decides anything.
-  So there is no accuracy argument either way. Two reasons to stay with minimap2 here:
-
-  1. pbmm2's real value - carrying PacBio BAM tags, read groups and the `.pbi` through
-     the alignment - applies to *reads*. Stage 04's input is evigene's derived transcript
-     fasta, which has no PacBio metadata left; pbmm2 itself warns "Input is FASTA".
-  2. pbmm2 filters by default (`-y 70` minimum gap-compressed identity, `-l 50` minimum
-     mapped length). Stage 05 wants the alignment metrics for *every* transcript so it
-     can apply `classify.min_identity` / `min_query_cov` itself and record the numbers in
-     the annotation table. Filtering upstream would make a marginal alignment
-     indistinguishable from no alignment at all, both landing as `novel_unmapped`.
-
-  pbmm2 remains the right tool for aligning the FLNC reads themselves (as in a
-  pbmm2 + `isoseq collapse` pipeline). Note also that `-u` means different things in the
-  two programs: GT-AG strand search in minimap2, `--no-kmer-compression` in pbmm2.
-* **`novel_unmapped` is not the same as novel.** Because the IsoSeq libraries come from a
-  different subpopulation than the assembly, an unmapped transcript can be genuine
-  novelty, population divergence, or an assembly gap. Treat that class as a follow-up
-  list, not a result.
 * **`n_flnc_reads` is a support count, not an expression estimate.** It comes from
   remapping the (deduplicated) FLNC reads to the final transcriptome with
   `minimap2 -x map-hifi --secondary=no`, counting forward-strand primary hits and
@@ -317,8 +291,7 @@ does not dominate the pairwise blastp.
 **cluster2 is OOM-killed (`oom_kill event`, `rc=-9`) while `sacct` reports a MaxRSS of
 well under a gigabyte.** These look contradictory and are not. cluster2 spools a
 temporary BAM of everything it writes and takes the directory from `TMPDIR`, falling
-back to `/tmp`. On a cluster whose nodes have no local scratch (RDAC declares
-`TmpDisk=0`), `/tmp` is RAM-backed - and tmpfs pages are charged to the job's memory
+back to `/tmp`. On a cluster whose nodes have no local scratch, `/tmp` is RAM-backed - and tmpfs pages are charged to the job's memory
 cgroup while never appearing in the process's RSS. So the job is killed for memory while
 `MaxRSS` shows the process itself using almost none, and raising `--mem` only moves the
 ceiling because the temp file keeps growing with the library. On RDAC this is literal -
